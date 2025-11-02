@@ -1,20 +1,14 @@
 pipeline {
     agent any
 
-    environment {
-        SSH_USER = 'ubuntu'
-        SSH_HOST = '18.60.54.125'
-        APP_DIR = '/home/ubuntu/task-app'
-    }
-
     stages {
-        stage('Checkout Code') {
+        stage('Pull from GitHub') {
             steps {
                 git branch: 'main', url: 'https://github.com/Devdharshh271/task-app.git'
             }
         }
 
-        stage('Build App') {
+        stage('Install Dependencies') {
             steps {
                 sh 'npm install'
             }
@@ -33,32 +27,14 @@ pipeline {
                                 execCommand: '''
                                     cd /home/ubuntu/task-app
                                     npm install
-                                    pm2 delete all || true
-                                    pm2 start server.js --name task-app
-                                    pm2 save
+                                    nohup node server.js > app.log 2>&1 &
                                 '''
                             )
-                        ]
+                        ],
+                        verbose: true
                     )
                 ])
             }
-        }
-    }
-
-    post {
-        success {
-            emailext (
-                to: 'YOUR_EMAIL_HERE',
-                subject: "SUCCESS: Jenkins Pipeline Build #${BUILD_NUMBER}",
-                body: "The build was successful!"
-            )
-        }
-        failure {
-            emailext (
-                to: 'YOUR_EMAIL_HERE',
-                subject: "FAILURE: Jenkins Pipeline Build #${BUILD_NUMBER}",
-                body: "The build failed. Please check Jenkins logs."
-            )
         }
     }
 }
