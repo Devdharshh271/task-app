@@ -1,55 +1,64 @@
 pipeline {
-  agent any
-  environment {
-    SSH_CRED = 'deploy-ssh'
-    TARGET = 'localhost'
-    ARTIFACT = "app-${env.BUILD_NUMBER}.tar.gz"
-  }
+    agent any
 
-  stages {
-    stage('Checkout') {
-      steps {
-        checkout scm
-      }
+    environment {
+        SSH_USER = 'ubuntu'
+        SSH_HOST = '18.60.54.125'
+        APP_DIR = '/home/ubuntu/task-app'
     }
 
-    stage('Build') {
-      steps {
-        sh 'npm install'
-      }
-    }
-
-    stage('Package') {
-      steps {
-        sh "tar -czf ${ARTIFACT} *"
-      }
-    }
-
-    stage('Deploy') {
-      steps {
-        sshagent (credentials: [env.SSH_CRED]) {
-          sh """
-          scp -o StrictHostKeyChecking=no ${ARTIFACT} ubuntu@${TARGET}:/tmp/
-          ssh -o StrictHostKeyChecking=no ubuntu@${TARGET} 'bash -s' <<'ENDSSH'
-          sudo mkdir -p /var/www/task-app
-          sudo tar -xzf /tmp/${ARTIFACT} -C /var/www/task-app
-          cd /var/www/task-app
-          npm install --production
-          pm2 delete task-app || true
-          pm2 start server.js --name task-app
-          ENDSSH
-          """
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Devdharshh271/task-app.git'
+            }
         }
-      }
-    }
-  }
 
-  post {
-    success {
-      echo '✅ Build & Deploy success!'
+        stage('Build App') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                sshPublisher(publishers: [
+                    sshPublisherDesc(
+                        configName: 'EC2-Server',
+                        transfers: [
+                            sshTransfer(
+                                sourceFiles: '**/*',
+                                removePrefix: '',
+                                remoteDirectory: '/home/ubuntu/task-app',
+                                execCommand: '''
+                                    cd /home/ubuntu/task-app
+                                    npm install
+                                    pm2 delete all || true
+                                    pm2 start server.js --name task-app
+                                    pm2 save
+                                '''
+                            )
+                        ]
+                    )
+                ])
+            }
+        }
     }
-    failure {
-      echo '❌ Build failed!'
+
+    post {
+        success {
+            emailext (
+                to: 'YOUR_EMAIL_HERE',
+                subject: "SUCCESS: Jenkins Pipeline Build #${BUILD_NUMBER}",
+                body: "The build was successful!"
+            )
+        }
+        failure {
+            emailext (
+                to: 'YOUR_EMAIL_HERE',
+                subject: "FAILURE: Jenkins Pipeline Build #${BUILD_NUMBER}",
+                body: "The build failed. Please check Jenkins logs."
+            )
+        }
     }
-  }
 }
