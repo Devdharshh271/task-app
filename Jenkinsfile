@@ -1,8 +1,14 @@
 pipeline {
     agent any
 
+    environment {
+        DEPLOY_SERVER = "98.130.15.159"
+        DEPLOY_USER = "ubuntu"
+        PEM_PATH = "/var/lib/jenkins/vpc-key.pem"
+    }
+
     stages {
-        stage('Pull from GitHub') {
+        stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/Devdharshh271/task-app.git'
             }
@@ -16,25 +22,34 @@ pipeline {
 
         stage('Deploy to EC2') {
             steps {
-                sshPublisher(publishers: [
-                    sshPublisherDesc(
-                        configName: 'EC2-Server',
-                        transfers: [
-                            sshTransfer(
-                                sourceFiles: '**/*',
-                                removePrefix: '',
-                                remoteDirectory: '/home/ubuntu/task-app',
-                                execCommand: '''
-                                    cd /home/ubuntu/task-app
-                                    npm install
-                                    nohup node server.js > app.log 2>&1 &
-                                '''
-                            )
-                        ],
-                        verbose: true
-                    )
-                ])
+                sshagent(credentials: ['EC2-Server']) {
+                    sh '''
+                    echo "🚀 Deploying to EC2 Server..."
+                    ssh -o StrictHostKeyChecking=no -i $PEM_PATH $DEPLOY_USER@$DEPLOY_SERVER 'bash -s' <<'EOF'
+                    chmod +x ~/deploy.sh
+                    ~/deploy.sh
+                    EOF
+                    '''
+                }
             }
+        }
+    }
+
+    post {
+        success {
+            emailext(
+                subject: "✅ Jenkins Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Good news! Your deployment succeeded.\n\nJob: ${env.JOB_NAME}\nBuild: ${env.BUILD_NUMBER}\nCheck app at http://$DEPLOY_SERVER:3000",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+            )
+        }
+
+        failure {
+            emailext(
+                subject: "❌ Jenkins Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Build failed! Please check Jenkins console for logs.\n\nJob: ${env.JOB_NAME}\nBuild: ${env.BUILD_NUMBER}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+            )
         }
     }
 }
